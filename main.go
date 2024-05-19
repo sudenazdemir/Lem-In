@@ -314,6 +314,7 @@ func dfs(graph map[string]map[string]int, tunnels map[string][]string, current, 
 	*path = (*path)[:len(*path)-1]
 	visited[current] = false
 }
+
 func ReadFile2(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -358,9 +359,6 @@ func main() {
 		fmt.Println("ERROR: invalid data format, no rooms or tunnels found")
 		return
 	}
-
-	// Check for other invalid data format conditions
-	// For example: duplicated rooms, links to unknown rooms, rooms with invalid coordinates, etc.
 
 	lines, err := ReadFile2(filename)
 	if err != nil {
