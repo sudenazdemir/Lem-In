@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Room struct represents a room in the ant farm
@@ -338,6 +339,7 @@ func ReadFile2(path string) ([]string, error) {
 }
 
 func main() {
+	startTime := time.Now()
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run main.go <input_file>")
 		return
@@ -384,4 +386,8 @@ func main() {
 
 	fmt.Println() // Empty line
 	printPathLevels(paths, antCount)
+	fmt.Println()
+	endTime := time.Now()
+	elapsedTime := endTime.Sub(startTime)
+	fmt.Printf("Total time: %v\n", elapsedTime)
 }
