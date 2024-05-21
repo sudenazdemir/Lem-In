@@ -5,286 +5,427 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
+	"time"
 )
 
+// Room struct represents a room in the ant farm
 type Room struct {
-	name  string
-	x, y  int
-	links []string
+	Name string
+	X    int
+	Y    int
 }
 
-type Farm struct {
-	rooms   map[string]*Room
-	start   string
-	end     string
-	numAnts int
+// Tunnel struct represents a tunnel connecting two rooms
+type Tunnel struct {
+	From string
+	To   string
 }
 
-func NewFarm() *Farm {
-	return &Farm{
-		rooms: make(map[string]*Room),
-	}
+// Path struct represents a path taken by an ant
+type Path struct {
+	Steps []string
 }
 
-func (f *Farm) AddRoom(name string, x, y int) {
-	f.rooms[name] = &Room{name: name, x: x, y: y, links: []string{}}
+// Graph struct represents the graph structure
+type Graph struct {
+	Nodes    map[string]*Room
+	Tunnels  map[string][]string
+	Capacity map[string]map[string]int
+	Start    string
+	End      string
 }
 
-func (f *Farm) AddLink(from, to string) {
-	f.rooms[from].links = append(f.rooms[from].links, to)
-	f.rooms[to].links = append(f.rooms[to].links, from)
-}
+func ReadFile(filename string) (int, []Room, []Tunnel, Room, Room, error) {
+	var antCount int
+	var rooms []Room
+	var tunnels []Tunnel
+	var startRoom, endRoom Room
 
-func (f *Farm) ReadInput(filename string) error {
 	file, err := os.Open(filename)
 	if err != nil {
-		return fmt.Errorf("ERROR: Could not open file")
+		return 0, nil, nil, Room{}, Room{}, err
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	var phase string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if line == "" || strings.HasPrefix(line, "#") {
-			if line == "##start" {
-				phase = "start"
-			} else if line == "##end" {
-				phase = "end"
+		if strings.HasPrefix(line, "##start") {
+			scanner.Scan()
+			parts := strings.Fields(scanner.Text())
+			startRoom = Room{
+				Name: parts[0],
+				X:    convertToInt(parts[1]),
+				Y:    convertToInt(parts[2]),
 			}
-			continue
-		}
-
-		if phase == "start" {
-			parts := strings.Split(line, " ")
-			if len(parts) != 3 {
-				return fmt.Errorf("ERROR: invalid room format for start room")
+		} else if strings.HasPrefix(line, "##end") {
+			scanner.Scan()
+			parts := strings.Fields(scanner.Text())
+			endRoom = Room{
+				Name: parts[0],
+				X:    convertToInt(parts[1]),
+				Y:    convertToInt(parts[2]),
 			}
-			f.AddRoom(parts[0], atoi(parts[1]), atoi(parts[2]))
-			f.start = parts[0]
-			phase = ""
-		} else if phase == "end" {
-			parts := strings.Split(line, " ")
-			if len(parts) != 3 {
-				return fmt.Errorf("ERROR: invalid room format for end room")
+		} else if antCount == 0 {
+			antCount = convertToInt(line)
+			if antCount <= 0 {
+				return 0, nil, nil, Room{}, Room{}, fmt.Errorf("ERROR: No ants specified or invalid number of ants")
 			}
-			f.AddRoom(parts[0], atoi(parts[1]), atoi(parts[2]))
-			f.end = parts[0]
-			phase = ""
+		} else if strings.Contains(line, "-") {
+			parts := strings.Split(line, "-")
+			tunnels = append(tunnels, Tunnel{From: parts[0], To: parts[1]})
 		} else {
-			if strings.Contains(line, "-") {
-				parts := strings.Split(line, "-")
-				if len(parts) != 2 {
-					return fmt.Errorf("ERROR: invalid link format")
+			parts := strings.Fields(line)
+			if len(parts) == 3 {
+				room := Room{
+					Name: parts[0],
+					X:    convertToInt(parts[1]),
+					Y:    convertToInt(parts[2]),
 				}
-				f.AddLink(parts[0], parts[1])
-			} else if f.numAnts == 0 {
-				f.numAnts = atoi(line)
-				if f.numAnts <= 0 {
-					return fmt.Errorf("ERROR: No ants specified or invalid number of ants")
-				}
-			} else {
-				parts := strings.Split(line, " ")
-				if len(parts) != 3 {
-					return fmt.Errorf("ERROR: invalid room format")
-				}
-				f.AddRoom(parts[0], atoi(parts[1]), atoi(parts[2]))
+				rooms = append(rooms, room)
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("ERROR: Scanner error")
+		return 0, nil, nil, Room{}, Room{}, err
 	}
 
-	if f.start == "" || f.end == "" {
-		return fmt.Errorf("ERROR: start or end room not defined")
-	}
-
-	return nil
+	return antCount, rooms, tunnels, startRoom, endRoom, nil
 }
 
-func atoi(s string) int {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		panic(fmt.Errorf("ERROR: invalid number format"))
-	}
-	return n
+// Helper function to convert string to int
+func convertToInt(s string) int {
+	var result int
+	fmt.Sscanf(s, "%d", &result)
+	return result
 }
 
-func (f *Farm) DFSAllPaths(start, end string) [][]string {
+// NewGraph initializes a new Graph
+func NewGraph(antCount int, rooms []Room, tunnels []Tunnel, startRoom Room, endRoom Room) (*Graph, error) {
+	graph := &Graph{
+		Nodes:    make(map[string]*Room),
+		Tunnels:  make(map[string][]string),
+		Capacity: make(map[string]map[string]int),
+		Start:    startRoom.Name,
+		End:      endRoom.Name,
+	}
+
+	// Add start and end rooms
+	graph.Nodes[startRoom.Name] = &startRoom
+	graph.Nodes[endRoom.Name] = &endRoom
+
+	// Add other rooms
+	for i := range rooms {
+		room := rooms[i]
+		graph.Nodes[room.Name] = &room
+	}
+
+	for _, tunnel := range tunnels {
+		if tunnel.From == tunnel.To {
+			return nil, fmt.Errorf("ERROR: Room %s links to itself", tunnel.From)
+		}
+
+		if _, ok := graph.Tunnels[tunnel.From]; !ok {
+			graph.Tunnels[tunnel.From] = make([]string, 0)
+		}
+		graph.Tunnels[tunnel.From] = append(graph.Tunnels[tunnel.From], tunnel.To)
+
+		if _, ok := graph.Tunnels[tunnel.To]; !ok {
+			graph.Tunnels[tunnel.To] = make([]string, 0)
+		}
+		graph.Tunnels[tunnel.To] = append(graph.Tunnels[tunnel.To], tunnel.From)
+
+		if _, ok := graph.Capacity[tunnel.From]; !ok {
+			graph.Capacity[tunnel.From] = make(map[string]int)
+		}
+		graph.Capacity[tunnel.From][tunnel.To] = 1
+
+		if _, ok := graph.Capacity[tunnel.To]; !ok {
+			graph.Capacity[tunnel.To] = make(map[string]int)
+		}
+		graph.Capacity[tunnel.To][tunnel.From] = 1
+	}
+
+	return graph, nil
+}
+
+// String returns a string representation of the Graph
+func (g *Graph) String() string {
+	result := "\nNodes:\n"
+	for name, room := range g.Nodes {
+		result += fmt.Sprintf("%s: %+v\n", name, *room)
+	}
+	result += "\nTunnels:\n"
+	for from, toList := range g.Tunnels {
+		for _, to := range toList {
+			result += fmt.Sprintf("%s -> %s\n", from, to)
+		}
+	}
+	return result
+}
+
+// copyGraph creates a deep copy of the capacity graph
+func copyGraph(original map[string]map[string]int) map[string]map[string]int {
+	copy := make(map[string]map[string]int)
+	for u, neighbors := range original {
+		copy[u] = make(map[string]int)
+		for v, capacity := range neighbors {
+			copy[u][v] = capacity
+		}
+	}
+	return copy
+}
+
+func (g *Graph) FindAllPaths(start, end string) [][]string {
 	var paths [][]string
-	var dfs func(currentRoom string, path []string, visited map[string]bool)
-
-	dfs = func(currentRoom string, path []string, visited map[string]bool) {
-		path = append(path, currentRoom)
-		if currentRoom == end {
-			pathCopy := make([]string, len(path))
-			copy(pathCopy, path)
-			paths = append(paths, pathCopy)
-			return
-		}
-
-		visited[currentRoom] = true
-		for _, neighbor := range f.rooms[currentRoom].links {
-			if !visited[neighbor] {
-				dfs(neighbor, path, visited)
-			}
-		}
-		visited[currentRoom] = false
-	}
-
-	dfs(start, []string{}, make(map[string]bool))
+	residualGraph := copyGraph(g.Capacity)
+	visited := make(map[string]bool)
+	path := []string{}
+	dfs(residualGraph, g.Tunnels, start, end, visited, &path, &paths)
 	return paths
 }
 
-func pathLength(path []string) int {
-	return len(path)
+// FindNonOverlappingPaths finds non-overlapping paths, preferring shorter ones when initial steps overlap
+func (g *Graph) FindNonOverlappingPaths(ants int) [][]string {
+	allPaths := g.FindAllPaths(g.Start, g.End)
+	sort.Slice(allPaths, func(i, j int) bool {
+		return len(allPaths[i]) < len(allPaths[j])
+	})
+	a := FiltreleYollar(allPaths, ants)
+	return a
 }
 
-func pathsSimilarity(path1, path2 []string) int {
-	similarity := 0
-	for i := 0; i < len(path1) && i < len(path2); i++ {
-		if path1[i] == path2[i] {
-			similarity++
+// Yolları filtreler ve çakışan odaları çıkarır
+func FiltreleYollar(yollar [][]string, karincaSayisi int) [][]string {
+	var filtrelenmisYollar [][]string
+
+	// İki yolun ara odalarda çakışıp çakışmadığını kontrol eden yardımcı fonksiyon
+	yollarCakisiyor := func(yol1, yol2 []string) bool {
+		kume := make(map[string]bool)
+		for _, oda := range yol1[1 : len(yol1)-1] { // Başlangıç ve bitişi hariç tut
+			kume[oda] = true
 		}
-	}
-	return similarity
-}
-
-func filterPaths(paths [][]string, similarityThreshold int) [][]string {
-	var filteredPaths [][]string
-	for _, path := range paths {
-		isUnique := true
-		for _, filteredPath := range filteredPaths {
-			if pathsSimilarity(path, filteredPath) >= similarityThreshold {
-				isUnique = false
-				break
+		for _, oda := range yol2[1 : len(yol2)-1] {
+			if kume[oda] {
+				return true
 			}
 		}
-		if isUnique {
-			filteredPaths = append(filteredPaths, path)
+		return false
+	}
+
+	// Çakışmayan yol kombinasyonlarını bulmak için tüm kombinasyonları dene
+	var kombinasyonlar func([][]string, int, []int)
+	var enIyiKombinasyon []int
+	maxYol := 0
+
+	kombinasyonlar = func(yollar [][]string, indeks int, secili []int) {
+		if len(secili) > maxYol {
+			maxYol = len(secili)
+			enIyiKombinasyon = make([]int, len(secili))
+			copy(enIyiKombinasyon, secili)
+		}
+
+		for i := indeks; i < len(yollar); i++ {
+			cakisiyor := false
+			for _, s := range secili {
+				if yollarCakisiyor(yollar[s], yollar[i]) {
+					cakisiyor = true
+					break
+				}
+			}
+			if !cakisiyor {
+				secili = append(secili, i)
+				kombinasyonlar(yollar, i+1, secili)
+				secili = secili[:len(secili)-1]
+			}
 		}
 	}
-	return filteredPaths
-}
 
-type Ant struct {
-	id    int
-	path  []string
-	index int
-}
+	kombinasyonlar(yollar, 0, []int{})
 
-func assignAntsToPaths(numAnts int, paths [][]string) []Ant {
-	ants := make([]Ant, numAnts)
-	pathIndex := 0
-	for i := 0; i < numAnts; i++ {
-		ants[i] = Ant{
-			id:    i + 1,
-			path:  paths[pathIndex],
-			index: 0,
+	for _, indeks := range enIyiKombinasyon {
+		filtrelenmisYollar = append(filtrelenmisYollar, yollar[indeks])
+		if len(filtrelenmisYollar) == karincaSayisi {
+			break
 		}
-		pathIndex = (pathIndex + 1) % len(paths)
 	}
-	return ants
+
+	return filtrelenmisYollar
 }
 
-func printAntMovements(ants []Ant, numAnts int, start, end string) {
+func printPathLevels(paths [][]string, antCount int) {
+	antPositions := make([]int, antCount)
 	nodeOccupied := make(map[string]bool)
+	antSteps := make([]int, antCount)
 
-	turn := 0
+	// Initialize ant positions and step counts at the beginning
+	for i := 0; i < antCount; i++ {
+		antPositions[i] = 1
+		antSteps[i] = 1
+	}
+
+	round := 1
+	startNodeConnections := len(paths)
+
 	for {
 		allAntsFinished := true
 		roundOutput := []string{}
 
-		for i := 0; i < numAnts; i++ {
-			ant := &ants[i]
-			if ant.index < len(ant.path)-1 {
-				nextNode := ant.path[ant.index+1]
-				if !nodeOccupied[nextNode] || nextNode == end {
-					if ant.index > 0 {
-						nodeOccupied[ant.path[ant.index]] = false
+		antsMovingFromStart := 0
+
+		for i := 0; i < antCount; i++ {
+			var pathIndex int
+			if i == antCount-1 {
+				pathIndex = 0 // Son karınca ilk yolu takip eder
+			} else {
+				pathIndex = i % len(paths)
+			}
+
+			if antPositions[i] >= len(paths[pathIndex]) {
+				continue
+			}
+
+			if antSteps[i] < len(paths[pathIndex]) {
+				nextNode := paths[pathIndex][antPositions[i]]
+
+				if antPositions[i] > 0 && antPositions[i]-1 < len(paths[pathIndex]) {
+					nodeOccupied[paths[pathIndex][antPositions[i]-1]] = false
+				}
+
+				if antPositions[i] == 1 {
+					if antsMovingFromStart >= startNodeConnections {
+						continue
 					}
+					antsMovingFromStart++
+				}
+
+				if !nodeOccupied[nextNode] || nextNode == paths[pathIndex][len(paths[pathIndex])-1] {
+					roundOutput = append(roundOutput, fmt.Sprintf("L%d-%s", i+1, nextNode))
 					nodeOccupied[nextNode] = true
-					ant.index++
-					roundOutput = append(roundOutput, fmt.Sprintf("L%d-%s", ant.id, nextNode))
+					antPositions[i]++
+					antSteps[i]++
+				}
+
+				if antPositions[i] < len(paths[pathIndex]) {
 					allAntsFinished = false
 				}
+			} else {
+				allAntsFinished = false
 			}
 		}
 
 		if len(roundOutput) > 0 {
 			fmt.Println(strings.Join(roundOutput, " "))
 		}
+		round++
 
 		if allAntsFinished {
 			break
 		}
-		turn++
 	}
 }
 
+// dfs is a depth-first search helper function
+func dfs(graph map[string]map[string]int, tunnels map[string][]string, current, target string, visited map[string]bool, path *[]string, paths *[][]string) {
+	visited[current] = true
+	*path = append(*path, current)
+
+	if current == target {
+		*paths = append(*paths, append([]string{}, *path...))
+	} else {
+		for _, neighbor := range tunnels[current] {
+			if !visited[neighbor] && graph[current][neighbor] > 0 {
+				dfs(graph, tunnels, neighbor, target, visited, path, paths)
+			}
+		}
+	}
+
+	*path = (*path)[:len(*path)-1]
+	visited[current] = false
+}
+
+func ReadFile2(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lines := []string{}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return lines, nil
+}
+
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Usage: lem-in <filename>")
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <input_file>")
 		return
 	}
+
+	startTime := time.Now()
 
 	filename := os.Args[1]
-	farm := NewFarm()
-	err := farm.ReadInput(filename)
+	antCount, rooms, tunnels, startRoom, endRoom, err := ReadFile(filename)
 	if err != nil {
-		fmt.Println("ERROR:", err)
-		return
-	}
-
-	paths := farm.DFSAllPaths(farm.start, farm.end)
-	if len(paths) == 0 {
 		fmt.Println("ERROR: invalid data format")
 		return
 	}
 
-	// Sort paths by length
-	sort.Slice(paths, func(i, j int) bool {
-		return pathLength(paths[i]) < pathLength(paths[j])
-	})
-
-	// Print the number of ants
-	fmt.Println(farm.numAnts)
-
-	// Print the rooms
-	fmt.Println("the_rooms")
-
-	fmt.Printf("%s %d %d\n", farm.start, farm.rooms[farm.start].x, farm.rooms[farm.start].y)
-	for name, room := range farm.rooms {
-		if name != farm.start && name != farm.end {
-			fmt.Printf("%s %d %d\n", name, room.x, room.y)
-		}
+	if startRoom.Name == "" || endRoom.Name == "" {
+		fmt.Println("ERROR: invalid data format, no start or end room found")
+		return
 	}
-	fmt.Printf("%s %d %d\n", farm.end, farm.rooms[farm.end].x, farm.rooms[farm.end].y)
 
-	// Print the links
-	fmt.Println("the_links")
-
-	for from, room := range farm.rooms {
-		for _, to := range room.links {
-			if from < to {
-				fmt.Printf("%s-%s\n", from, to)
-
-			}
-		}
+	if len(rooms) == 0 || len(tunnels) == 0 {
+		fmt.Println("ERROR: invalid data format, no rooms or tunnels found")
+		return
 	}
-	fmt.Println()
 
-	// Filter paths to remove similar ones
-	similarityThreshold := 2 // Threshold can be adjusted as needed
-	filteredPaths := filterPaths(paths, similarityThreshold)
+	// Check for other invalid data format conditions
+	// For example: duplicated rooms, links to unknown rooms, rooms with invalid coordinates, etc.
 
-	// Assign ants to paths
-	antPaths := assignAntsToPaths(farm.numAnts, filteredPaths)
+	lines, err := ReadFile2(filename)
+	if err != nil {
+		fmt.Println("ERROR: File not found")
+		return
+	}
 
-	// Print each turn
-	printAntMovements(antPaths, farm.numAnts, farm.start, farm.end)
+	graph, err := NewGraph(antCount, rooms, tunnels, startRoom, endRoom)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	paths := graph.FindNonOverlappingPaths(antCount)
+	if len(paths) == 0 {
+		fmt.Println("ERROR: invalid data format, no path between ##start and ##end")
+		return
+	}
+	fmt.Println(paths)
+
+	// Print file content
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+
+	fmt.Println() // Empty line
+	printPathLevels(paths, antCount)
+	endTime := time.Now()
+
+	duration := endTime.Sub(startTime)
+	if filename == "example06.txt" || filename == "example07.txt" {
+		fmt.Printf("Gerçek zamanlı süre: %.10f saniye\n", duration.Seconds())
+	}
 }
