@@ -193,22 +193,22 @@ func (g *Graph) FindNonOverlappingPaths(ants int) [][]string {
 	sort.Slice(allPaths, func(i, j int) bool {
 		return len(allPaths[i]) < len(allPaths[j])
 	})
-	a := filterPath(allPaths, ants)
+	a := FiltreleYollar(allPaths, ants)
 	return a
 }
 
 // Yolları filtreler ve çakışan odaları çıkarır
-func filterPath(path [][]string, antcount int) [][]string {
-	var filteredPath [][]string
+func FiltreleYollar(yollar [][]string, karincaSayisi int) [][]string {
+	var filtrelenmisYollar [][]string
 
 	// İki yolun ara odalarda çakışıp çakışmadığını kontrol eden yardımcı fonksiyon
-	overlappingPath := func(path1, path2 []string) bool {
+	yollarCakisiyor := func(yol1, yol2 []string) bool {
 		kume := make(map[string]bool)
-		for _, room := range path1[1 : len(path1)-1] { // Başlangıç ve bitişi hariç tut
-			kume[room] = true
+		for _, oda := range yol1[1 : len(yol1)-1] { // Başlangıç ve bitişi hariç tut
+			kume[oda] = true
 		}
-		for _, room := range path2[1 : len(path2)-1] {
-			if kume[room] {
+		for _, oda := range yol2[1 : len(yol2)-1] {
+			if kume[oda] {
 				return true
 			}
 		}
@@ -216,43 +216,43 @@ func filterPath(path [][]string, antcount int) [][]string {
 	}
 
 	// Çakışmayan yol kombinasyonlarını bulmak için tüm kombinasyonları dene
-	var combinations func([][]string, int, []int)
-	var bestcombination []int
-	maxpath := 0
+	var kombinasyonlar func([][]string, int, []int)
+	var enIyiKombinasyon []int
+	maxYol := 0
 
-	combinations = func(path [][]string, index int, choosen []int) {
-		if len(choosen) > maxpath {
-			maxpath = len(choosen)
-			bestcombination = make([]int, len(choosen))
-			copy(bestcombination, choosen)
+	kombinasyonlar = func(yollar [][]string, indeks int, secili []int) {
+		if len(secili) > maxYol {
+			maxYol = len(secili)
+			enIyiKombinasyon = make([]int, len(secili))
+			copy(enIyiKombinasyon, secili)
 		}
 
-		for i := index; i < len(path); i++ {
-			overlapping := false
-			for _, s := range choosen {
-				if overlappingPath(path[s], path[i]) {
-					overlapping = true
+		for i := indeks; i < len(yollar); i++ {
+			cakisiyor := false
+			for _, s := range secili {
+				if yollarCakisiyor(yollar[s], yollar[i]) {
+					cakisiyor = true
 					break
 				}
 			}
-			if !overlapping {
-				choosen = append(choosen, i)
-				combinations(path, i+1, choosen)
-				choosen = choosen[:len(choosen)-1]
+			if !cakisiyor {
+				secili = append(secili, i)
+				kombinasyonlar(yollar, i+1, secili)
+				secili = secili[:len(secili)-1]
 			}
 		}
 	}
 
-	combinations(path, 0, []int{})
+	kombinasyonlar(yollar, 0, []int{})
 
-	for _, index := range bestcombination {
-		filteredPath = append(filteredPath, path[index])
-		if len(filteredPath) == antcount {
+	for _, indeks := range enIyiKombinasyon {
+		filtrelenmisYollar = append(filtrelenmisYollar, yollar[indeks])
+		if len(filtrelenmisYollar) == karincaSayisi {
 			break
 		}
 	}
 
-	return filteredPath
+	return filtrelenmisYollar
 }
 
 func printPathLevels(paths [][]string, antCount int) {
@@ -392,6 +392,9 @@ func main() {
 		fmt.Println("ERROR: invalid data format, no rooms or tunnels found")
 		return
 	}
+
+	// Check for other invalid data format conditions
+	// For example: duplicated rooms, links to unknown rooms, rooms with invalid coordinates, etc.
 
 	lines, err := ReadFile2(filename)
 	if err != nil {
